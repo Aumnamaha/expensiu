@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert, Modal } from 'react-native';
 import * as FileSystem from 'expo-file-system';
+import { useRouter } from 'expo-router';
+import { saveUserProfile } from '../../db/database';
 
 // ============================================================================
 // Onboarding Model Download Screen
@@ -16,9 +18,10 @@ export default function ModelDownloadScreen() {
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [wifiStatus, setWifiStatus] = useState<'connected' | 'disconnected'>(
-    require('@react-native-community/netinfo').fetch().isInternetReachable ? 'connected' : 'disconnected'
+    'connected'
   );
   const [stepText, setStepText] = useState('Ready to download');
+  const router = useRouter();
 
   useEffect(() => {
     // Auto-navigate if model already downloaded
@@ -30,7 +33,7 @@ export default function ModelDownloadScreen() {
       await require('@/services/aiEngine').isModelDownloaded();
 
       // Model exists - navigate to permissions screen automatically
-      await require('expo-router').link('/onboarding/permissions');
+      router.replace('/');
     } catch (error) {
       console.log('Model not yet downloaded, showing download screen');
     }
@@ -61,7 +64,7 @@ export default function ModelDownloadScreen() {
         [
           {
             text: 'OK',
-            onPress: () => require('expo-router').link('/onboarding/permissions'),
+            onPress: () => router.replace('/'),
           },
         ]
       );
@@ -150,7 +153,7 @@ export default function ModelDownloadScreen() {
           downloading && { opacity: 0.7 },
         ]}
         onPress={handleStartDownload}
-        disabled={downloading || wifiStatus === 'disconnected'}
+        disabled={downloading}
       >
         {downloading ? (
           <>
@@ -185,6 +188,27 @@ export default function ModelDownloadScreen() {
       </View>
 
       {/* Warning for skipping */}
+      <TouchableOpacity
+        onPress={async () => {
+          try {
+            await saveUserProfile({
+              name: 'User',
+              monthly_budget_minor: 100000,
+              currency_code: 'USD',
+              currency_symbol: '$',
+              locale: 'en',
+              ai_model_downloaded: false,
+              ai_model_version: ''
+            });
+          } catch(e) {}
+          router.replace('/');
+        }}
+        style={{ marginTop: 16, padding: 12, alignItems: 'center' }}
+      >
+        <Text style={{ color: '#8b949e', textDecorationLine: 'underline' }}>
+          Skip for now (use English-only mode)
+        </Text>
+      </TouchableOpacity>
       <View style={styles.warningContainer}>
         <Text style={styles.warningIcon}>⚠️</Text>
         <Text style={styles.warningText}>This screen cannot be skipped. The AI is required for multilingual parsing and advanced features.</Text>

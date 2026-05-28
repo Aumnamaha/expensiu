@@ -294,7 +294,7 @@ export async function getTransactionsByRange(
   try {
     const rows = await db.getAllAsync<Transaction>(`
       SELECT * FROM transactions
-      WHERE date BETWEEN ? AND ?
+      WHERE substr(date, 1, 10) BETWEEN ? AND ?
       ORDER BY date DESC, id DESC
     `, [startDate, endDate]);
 

@@ -1,7 +1,9 @@
+import { useRouter } from "expo-router";
 import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 
 export default function PermissionsScreen() {
+  const router = useRouter();
   const [smsGranted, setSmsGranted] = useState(false);
   const [notificationListenerGranted, setNotificationListenerGranted] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -44,7 +46,7 @@ export default function PermissionsScreen() {
       {/* Permission Cards */}
       <View style={styles.permissionCard}>
         <View style={[styles.permissionIcon, smsGranted ? styles.granted : styles.pending]}>
-          {smsGranted ? '✓' : '?'}
+          <Text>{smsGranted ? '✓' : '?'}</Text>
         </View>
         <View style={styles.permissionInfo}>
           <Text style={styles.permissionTitle}>SMS Access</Text>
@@ -55,7 +57,7 @@ export default function PermissionsScreen() {
 
       <View style={styles.permissionCard}>
         <View style={[styles.permissionIcon, notificationListenerGranted ? styles.granted : styles.pending]}>
-          {notificationListenerGranted ? '✓' : '?'}
+          <Text>{notificationListenerGranted ? '✓' : '?'}</Text>
         </View>
         <View style={styles.permissionInfo}>
           <Text style={styles.permissionTitle}>Notifications</Text>
@@ -66,7 +68,7 @@ export default function PermissionsScreen() {
 
       <View style={styles.permissionCard}>
         <View style={[styles.permissionIcon, biometricAvailable ? styles.granted : styles.pending]}>
-          {biometricAvailable ? '✓' : '🔒'}
+          <Text>{biometricAvailable ? '✓' : '🔒'}</Text>
         </View>
         <View style={styles.permissionInfo}>
           <Text style={styles.permissionTitle}>Biometric Lock</Text>
@@ -78,8 +80,8 @@ export default function PermissionsScreen() {
       {/* Action Button */}
       <TouchableOpacity
         style={[styles.actionButton, smsGranted && notificationListenerGranted && biometricAvailable ? styles.grActionButton : styles.disabledButton]}
-        onPress={handlePermissionRequests}
-        disabled={!smsGranted || !notificationListenerGranted || !biometricAvailable}
+        onPress={() => { handlePermissionRequests(); router.push("/onboarding/model-download"); }}
+        disabled={false}
       >
         {smsGranted && notificationListenerGranted && biometricAvailable ? (
           <Text style={{ color: '#fff' }}>✓ Proceed to AI Model</Text>

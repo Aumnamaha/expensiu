@@ -32,7 +32,7 @@ export default function SummaryScreen() {
       switch (selectedPeriod) {
         case 'daily': {
           const d = new Date(nowDate);
-          d.setDate(d.getDate() - 1);
+          d.setHours(0, 0, 0, 0);
           startDateStr = d.toISOString().split('T')[0];
           break;
         }

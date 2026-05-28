@@ -1,7 +1,9 @@
+import { useRouter } from "expo-router";
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 
 export default function WelcomeScreen() {
+  const router = useRouter();
   return (
     <View style={styles.container}>
       {/* Logo */}
@@ -29,7 +31,7 @@ export default function WelcomeScreen() {
       </View>
 
       {/* CTA Button */}
-      <TouchableOpacity style={styles.getStartedButton}>
+      <TouchableOpacity style={styles.getStartedButton} onPress={() => router.push("/onboarding/permissions")}>
         <Text style={styles.getStartedText}>Get Started</Text>
       </TouchableOpacity>
     </View>
