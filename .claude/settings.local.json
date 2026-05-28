@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)",
+      "Bash(npm ls *)",
+      "Bash(node -e \"const sqlite = require\\('expo-sqlite'\\); console.log\\(Object.keys\\(sqlite\\)\\)\")",
+      "Bash(node -e \"const LA = require\\('expo-local-authentication'\\); console.log\\(Object.keys\\(LA\\)\\)\")",
+      "Bash(awk *)"
+    ]
+  }
+}

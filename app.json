@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "ExpensiU",
+    "slug": "expensi-u",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "scheme": "expensiu",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0d1117"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.expensi-u.app",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ],
+        "NSFaceIDUsageDescription": "ExpensiU uses Face ID to securely lock your financial data and protect your privacy.",
+        "NSPhotoLibraryAddUsageDescription": "ExpensiU can save images of receipts to your photo library."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0d1117"
+      },
+      "package": "com.expensi.uaapp",
+      "permissions": [
+        "READ_SMS",
+        "RECEIVE_SMS",
+        "BIND_NOTIFICATION_LISTENER_SERVICE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECEIVE_BOOT_COMPLETED"
+      ],
+      "bootReceiver": {
+        "receivedExportedIntentArgs": [
+          "com.expensi-u.android"
+        ]
+      },
+      "graphicsEnabled": true,
+      "flagSecure": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
