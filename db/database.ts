@@ -66,6 +66,13 @@ export interface DailySummaryRow {
   updated_at?: string;
 }
 
+export interface AISummary {
+  period: 'weekly' | 'monthly';
+  content: string;
+  period_key: string;
+  created_at: string;
+}
+
 // ============================================================================
 // Database Singleton
 // ============================================================================
@@ -187,6 +194,21 @@ async function createTablesIfNotExists(): Promise<void> {
       )`);
   } catch (e) {
     console.error('Failed to create daily_summary_cache table:', e);
+  }
+
+  // ============================================================================
+  // ai_summaries table
+  // ============================================================================
+  try {
+    await db.runAsync(`
+      CREATE TABLE IF NOT EXISTS ai_summaries (
+        period TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        period_key TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`);
+  } catch (e) {
+    console.error('Failed to create ai_summaries table:', e);
   }
 
   // Create indexes for faster queries
@@ -394,8 +416,8 @@ export async function getDailySummary(date: string): Promise<NotificationSummary
         COUNT(*) as transaction_count,
         GROUP_CONCAT(category, ',') as categories
       FROM transactions
-      WHERE date = ? AND is_verified = 1
-      GROUP BY date
+      WHERE substr(date, 1, 10) = ? AND is_verified = 1
+      GROUP BY substr(date, 1, 10)
       LIMIT 1`,
       [date]
     );
@@ -475,6 +497,7 @@ export async function getWeeklySummary(): Promise<NotificationSummary> {
   try {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
 
     // SQL aggregation for weekly summary
     const weeklyData = (await db.getAllAsync<{
@@ -538,6 +561,7 @@ export async function getMonthlySummary(): Promise<NotificationSummary> {
   try {
     const firstDayOfMonth = new Date();
     firstDayOfMonth.setDate(1);
+    firstDayOfMonth.setHours(0, 0, 0, 0);
 
     // SQL aggregation for monthly summary
     const monthlyData = (await db.getAllAsync<{
@@ -640,6 +664,20 @@ export async function saveUserProfile(profile: Partial<UserProfile>): Promise<vo
   const db = await getDB();
 
   try {
+    if (profile.currency_code) {
+      const oldProfile = await getUserProfile();
+      if (oldProfile && oldProfile.currency_code && oldProfile.currency_code !== profile.currency_code) {
+        const { getExchangeRates } = require('../services/exchangeRateService');
+        const rates = getExchangeRates();
+        await convertAllTransactionsCurrency(
+          oldProfile.currency_code,
+          profile.currency_code,
+          profile.currency_symbol || '$',
+          rates
+        );
+      }
+    }
+
     await db.runAsync(
       'INSERT OR REPLACE INTO user_profile (id, name, monthly_budget_minor, currency_code, currency_symbol, locale, ai_model_downloaded, ai_model_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
@@ -660,6 +698,77 @@ export async function saveUserProfile(profile: Partial<UserProfile>): Promise<vo
 }
 
 // ============================================================================
+// Currency Conversion — Batch Update All Transactions
+// ============================================================================
+
+/**
+ * Convert all transactions and the user budget from one currency to another.
+ * This is called when the user changes their default currency in settings.
+ *
+ * @param fromCode - Current currency code (e.g. 'USD')
+ * @param toCode   - New currency code (e.g. 'INR')
+ * @param toSymbol - New currency symbol (e.g. '₹')
+ * @param rates    - Exchange rate map (USD-based). If not provided, uses statics.
+ */
+export async function convertAllTransactionsCurrency(
+  fromCode: string,
+  toCode: string,
+  toSymbol: string,
+  rates?: Record<string, number>
+): Promise<void> {
+  if (fromCode === toCode) return;
+
+  const { convertCurrency } = require('../constants/currencies');
+  const db = await getDB();
+
+  try {
+    // 1. Fetch all transactions
+    const transactions = await db.getAllAsync<{
+      id: string;
+      amount_minor: number;
+      currency_code: string;
+    }>('SELECT id, amount_minor, currency_code FROM transactions');
+
+    if (transactions && transactions.length > 0) {
+      // 2. Batch-convert each transaction
+      for (const tx of transactions) {
+        const txFromCode = tx.currency_code || fromCode;
+        const convertedAmount = convertCurrency(tx.amount_minor, txFromCode, toCode, rates);
+
+        await db.runAsync(
+          'UPDATE transactions SET amount_minor = ?, currency_code = ?, currency_symbol = ? WHERE id = ?',
+          [convertedAmount, toCode, toSymbol, tx.id]
+        );
+      }
+
+      console.log(`Converted ${transactions.length} transactions from ${fromCode} to ${toCode}`);
+    }
+
+    // 3. Convert the monthly budget in user_profile
+    const profile = await db.getFirstAsync<{
+      monthly_budget_minor: number | null;
+    }>('SELECT monthly_budget_minor FROM user_profile WHERE id = 1');
+
+    if (profile && profile.monthly_budget_minor) {
+      const convertedBudget = convertCurrency(profile.monthly_budget_minor, fromCode, toCode, rates);
+      await db.runAsync(
+        'UPDATE user_profile SET monthly_budget_minor = ? WHERE id = 1',
+        [convertedBudget]
+      );
+      console.log(`Converted budget from ${fromCode} to ${toCode}: ${profile.monthly_budget_minor} -> ${convertedBudget}`);
+    }
+
+    // 4. Invalidate daily summary cache so it gets rebuilt from converted values
+    await db.runAsync('DELETE FROM daily_summary_cache');
+    console.log('Daily summary cache cleared after currency conversion');
+
+  } catch (e) {
+    console.error('Failed to convert transactions currency:', e);
+    throw e; // Re-throw so callers can show error feedback
+  }
+}
+
+// ============================================================================
 // Data Wipe and Security Operations
 // ============================================================================
 
@@ -671,6 +780,7 @@ export async function wipeAllData(): Promise<void> {
     await db.runAsync('DELETE FROM transactions');
     await db.runAsync('DELETE FROM user_profile');
     await db.runAsync('DELETE FROM daily_summary_cache');
+    await db.runAsync('DELETE FROM ai_summaries');
 
     // VACUUM overwrites freed SQLite pages, preventing data recovery from the raw file
     await db.execAsync('VACUUM');
@@ -726,5 +836,31 @@ export async function invalidateDailySummaryCache(date: string): Promise<void> {
     );
   } catch (e) {
     console.error('Failed to invalidate cache:', e);
+  }
+}
+
+export async function getAISummary(period: 'weekly' | 'monthly'): Promise<AISummary | null> {
+  const db = await getDB();
+  try {
+    const row = await db.getFirstAsync<AISummary>(
+      'SELECT * FROM ai_summaries WHERE period = ?',
+      [period]
+    );
+    return row || null;
+  } catch (e) {
+    console.error('Failed to get AI summary:', e);
+    return null;
+  }
+}
+
+export async function saveAISummary(summary: AISummary): Promise<void> {
+  const db = await getDB();
+  try {
+    await db.runAsync(
+      'INSERT OR REPLACE INTO ai_summaries (period, content, period_key, created_at) VALUES (?, ?, ?, ?)',
+      [summary.period, summary.content, summary.period_key, summary.created_at]
+    );
+  } catch (e) {
+    console.error('Failed to save AI summary:', e);
   }
 }

@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import type { NotificationSummary, Transaction } from '../types';
 import { initLlama, LlamaContext } from 'llama.rn';
 import { saveUserProfile } from '../db/database';
+import { formatAmount } from '../utils/mathUtils';
 
 // ============================================================================
 // Type Exports (for TypeScript compatibility)
@@ -24,9 +25,9 @@ export type TransactionCategory = 'Food' | 'Transport' | 'Shopping' | 'Entertain
 // ============================================================================
 
 export const MODEL_ID = "llama.rn-qwen2.5-0.5b-instruct";
-export const MODEL_DOWNLOAD_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf";
-export const MODEL_LOCAL_PATH = `${FileSystem.documentDirectory}.expensiu/models/llama.rn/`;
-export const MODEL_FILE_NAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf";
+export const MODEL_DOWNLOAD_URL = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
+export const MODEL_FILENAME = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
+export const MODEL_LOCAL_PATH = `${FileSystem.documentDirectory}.expensiu/models/${MODEL_FILENAME}`;
 
 const AI_TIMEOUT_MS = 10000;
 
@@ -38,8 +39,7 @@ let llamaContext: LlamaContext | null = null;
 
 export async function isModelDownloaded(): Promise<boolean> {
   try {
-    const modelFileUri = `${MODEL_LOCAL_PATH}${MODEL_FILE_NAME}`;
-    const fileInfo = await FileSystem.getInfoAsync(modelFileUri);
+    const fileInfo = await FileSystem.getInfoAsync(MODEL_LOCAL_PATH);
     return fileInfo.exists && (fileInfo as any).size > 0;
   } catch {
     return false;
@@ -58,17 +58,15 @@ export async function downloadModel(
     throw new Error("Please connect to WiFi to download the AI model (one-time, ~300MB)");
   }
 
-  const modelFileUri = `${MODEL_LOCAL_PATH}${MODEL_FILE_NAME}`;
-
-  // Ensure parent directory exists
-  const dirInfo = await FileSystem.getInfoAsync(MODEL_LOCAL_PATH);
+  // Create directory if it doesn't exist
+  const dirInfo = await FileSystem.getInfoAsync(FileSystem.documentDirectory + '.expensiu/models');
   if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(MODEL_LOCAL_PATH, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory + '.expensiu/models', { intermediates: true });
   }
 
   const downloadResumable = FileSystem.createDownloadResumable(
     MODEL_DOWNLOAD_URL,
-    modelFileUri,
+    MODEL_LOCAL_PATH,
     {},
     (downloadProgress) => {
       const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
@@ -82,7 +80,7 @@ export async function downloadModel(
       throw new Error("Download failed - no file saved");
     }
 
-    const fileInfo = await FileSystem.getInfoAsync(modelFileUri);
+    const fileInfo = await FileSystem.getInfoAsync(MODEL_LOCAL_PATH);
     if (!fileInfo.exists || (fileInfo as any).size < 10000000) {
       throw new Error("Downloaded model file is incomplete or corrupted");
     }
@@ -122,14 +120,8 @@ export async function initAI(): Promise<void> {
       throw new Error('Please connect to WiFi to download the AI model (one-time, ~300MB).');
     }
 
-    const modelFileUri = `${MODEL_LOCAL_PATH}${MODEL_FILE_NAME}`;
-
-    // Initialize llama.rn - model stays in memory after first load
-    llamaContext = await initLlama({
-      model: modelFileUri,
-      use_mlock: true,
-      n_ctx: 2048,
-    });
+    // Initialize llama.rn with MODEL_LOCAL_PATH directly
+    llamaContext = await initLlama({ model: MODEL_LOCAL_PATH, use_mlock: true, n_ctx: 2048 });
 
     console.log('AI model initialized and ready');
   } catch (error: any) {
@@ -361,4 +353,121 @@ function generateFallbackMessage(tone: string, userName: string): string {
 
   const options = messages[tone] || messages.heads_up;
   return options[Math.floor(Math.random() * options.length)];
+}
+
+export async function generateDetailedSummary(
+  period: 'weekly' | 'monthly',
+  profile: any,
+  transactions: Transaction[]
+): Promise<string> {
+  try {
+    if (!llamaContext) {
+      throw new Error('AI not initialized');
+    }
+
+    const userName = profile?.name || 'User';
+    const currencyCode = profile?.currency_code || 'USD';
+    const locale = profile?.locale || 'en';
+
+    const credits = transactions.filter(t => t.type === 'credit');
+    const debits = transactions.filter(t => t.type === 'debit');
+
+    const totalCredits = credits.reduce((acc, t) => acc + t.amount_minor, 0);
+    const totalDebits = debits.reduce((acc, t) => acc + t.amount_minor, 0);
+    const netBalance = totalCredits - totalDebits;
+
+    const formattedCredits = formatAmount(totalCredits, currencyCode, locale);
+    const formattedDebits = formatAmount(totalDebits, currencyCode, locale);
+    const formattedNet = formatAmount(netBalance, currencyCode, locale);
+
+    // Group transactions by category to list top expenses
+    const categoryTotals: Record<string, number> = {};
+    for (const tx of debits) {
+      categoryTotals[tx.category] = (categoryTotals[tx.category] || 0) + tx.amount_minor;
+    }
+
+    const sortedCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
+    const topCategoriesText = sortedCategories.slice(0, 3).map(([cat, amt]) => {
+      return `- ${cat}: ${formatAmount(amt, currencyCode, locale)}`;
+    }).join('\n');
+
+    const recentTxText = transactions.slice(0, 8).map(tx => {
+      const typeSign = tx.type === 'credit' ? '+' : '-';
+      return `- ${tx.merchant || 'Unknown'}: ${typeSign}${formatAmount(tx.amount_minor, currencyCode, locale)} (${tx.category})`;
+    }).join('\n');
+
+    const prompt = `<|im_start|>system
+You are a personal finance assistant. Keep your response friendly, concise, and helpful. Use a warm tone.
+Your task is to write a short financial summary (3-4 sentences maximum) based on the user's weekly or monthly transaction summary provided below.
+Identify their main spending areas, positive behaviors (if any), and offer one clear, specific tip to save money next time.
+Do not use markdown headers, bold titles, or placeholders like [Name]. Just write a simple paragraph.<|im_end|>
+<|im_start|>user
+Here is the financial summary for ${userName} for this ${period}:
+- Total Income: ${formattedCredits}
+- Total Expenses: ${formattedDebits}
+- Net Balance: ${formattedNet}
+
+Top expense categories:
+${topCategoriesText || 'None'}
+
+Recent transactions:
+${recentTxText || 'No recent transactions'}
+
+Write a friendly 3-4 sentence paragraph summary and a single actionable saving tip.<|im_end|>
+<|im_start|>assistant
+`;
+
+    const aiPromise = llamaContext.completion({
+      prompt: prompt,
+      n_predict: 256,
+      temperature: 0.7,
+    });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('AI timeout')), 25000)
+    );
+
+    const result: any = await Promise.race([aiPromise, timeoutPromise]);
+    let text = result?.text || '';
+    
+    text = text.replace(/<\|im_end\|>/g, '').trim();
+    if (!text) {
+      throw new Error('Empty response from AI');
+    }
+    return text;
+  } catch (error) {
+    console.error('Detailed summary generation failed:', error);
+    return generateFallbackDetailedSummary(period, profile, transactions);
+  }
+}
+
+function generateFallbackDetailedSummary(
+  period: 'weekly' | 'monthly',
+  profile: any,
+  transactions: Transaction[]
+): string {
+  const userName = profile?.name || 'User';
+  const currencyCode = profile?.currency_code || 'USD';
+  const locale = profile?.locale || 'en';
+
+  const credits = transactions.filter(t => t.type === 'credit');
+  const debits = transactions.filter(t => t.type === 'debit');
+
+  const totalCredits = credits.reduce((acc, t) => acc + t.amount_minor, 0);
+  const totalDebits = debits.reduce((acc, t) => acc + t.amount_minor, 0);
+
+  const formattedCredits = formatAmount(totalCredits, currencyCode, locale);
+  const formattedDebits = formatAmount(totalDebits, currencyCode, locale);
+
+  const debitCategories: Record<string, number> = {};
+  for (const t of debits) {
+    debitCategories[t.category] = (debitCategories[t.category] || 0) + t.amount_minor;
+  }
+  const topCat = Object.entries(debitCategories).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Other';
+
+  if (totalDebits === 0) {
+    return `Hello ${userName}! During this ${period}, you had no recorded expenses. Great job keeping your wallet closed and saving your hard-earned money!`;
+  }
+
+  return `Hey ${userName}, here is your ${period} financial breakdown. You spent a total of ${formattedDebits} while bringing in ${formattedCredits}. Your primary spending area was ${topCat}. To boost your savings next time, try setting a budget cap on ${topCat} and reviewing any subscriptions you might not need!`;
 }

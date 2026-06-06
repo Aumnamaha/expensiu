@@ -2,12 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import type { Transaction, TransactionCategory } from '../types';
 import { insertTransaction, getUserProfile } from '../db/database';
+import { useTheme } from '../hooks/useTheme';
 
 const WINDOW_WIDTH = Dimensions.get('window').width;
 
 export default function AddTransactionScreen() {
+  const { colors } = useTheme();
   const [amountMinor, setAmountMinor] = useState('');
   const [currencyCode, setCurrencyCode] = useState('USD');
   const [description, setDescription] = useState('');
@@ -49,6 +52,8 @@ export default function AddTransactionScreen() {
   }, [params]);
 
   async function handleSubmit() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+
     const amountVal = parseFloat(amountMinor);
     if (isNaN(amountVal) || amountVal <= 0) {
       Alert.alert('Validation Error', 'Please enter a valid amount.');
@@ -65,7 +70,7 @@ export default function AddTransactionScreen() {
       const isEdit = !!params.tx;
       const id = isEdit ? JSON.parse(params.tx as string).id : `txn_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-      const symbols: Record<string, string> = { USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥' };
+      const symbols: Record<string, string> = { USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'د.إ', BRL: 'R$' };
       const currencySymbol = symbols[currencyCode.toUpperCase()] || '$';
 
       const transaction: Transaction = {
@@ -94,6 +99,21 @@ export default function AddTransactionScreen() {
     }
   }
 
+  const handleCategoryPress = (cat: TransactionCategory) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setSelectedCategory(cat);
+  };
+
+  const handleTypePress = (newType: 'credit' | 'debit') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setType(newType);
+  };
+
+  const handleClose = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    router.back();
+  };
+
   const categories: TransactionCategory[] = [
     'Food', 'Transport', 'Shopping', 'Entertainment', 'Health',
     'Utilities', 'Transfer', 'Salary', 'Refund', 'Other'
@@ -104,25 +124,36 @@ export default function AddTransactionScreen() {
     Health: '💊', Utilities: '💡', Transfer: '💸', Salary: '💰', Refund: '🔄', Other: '📦',
   };
 
+  const currencySymbols: Record<string, string> = {
+    USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥', AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'د.إ', BRL: 'R$'
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      {/* Bottom Sheet Drag Handle */}
+      <View style={[styles.dragHandle, { backgroundColor: colors.border }]} />
+
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>{params.tx ? 'Edit Expense' : 'Add Expense'}</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
-          <Ionicons name="close-outline" size={24} color="#666" />
+        <Text style={[styles.title, { color: colors.foreground }]}>
+          {params.tx ? 'Edit Expense' : 'Add Expense'}
+        </Text>
+        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+          <Ionicons name="close-outline" size={24} color={colors.secondary} />
         </TouchableOpacity>
       </View>
 
       {/* Amount Input */}
       <View style={styles.inputGroup}>
         <Text style={styles.label}>AMOUNT</Text>
-        <View style={styles.amountInputRow}>
-          <Text style={styles.currencyPrefix}>{currencyCode === 'INR' ? '₹' : '$'}</Text>
+        <View style={[styles.amountInputRow, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.currencyPrefix, { color: colors.foreground }]}>
+            {currencySymbols[currencyCode.toUpperCase()] || currencyCode}
+          </Text>
           <TextInput
-            style={styles.amountInput}
+            style={[styles.amountInput, { color: colors.foreground }]}
             placeholder="0.00"
-            placeholderTextColor="#333"
+            placeholderTextColor={colors.secondary}
             keyboardType="decimal-pad"
             value={amountMinor}
             onChangeText={setAmountMinor}
@@ -133,16 +164,22 @@ export default function AddTransactionScreen() {
       </View>
 
       {/* Type Selector (Credit/Debit) */}
-      <View style={styles.typeSelector}>
+      <View style={[styles.typeSelector, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <TouchableOpacity
-          style={[styles.typeButton, type === 'debit' && styles.typeButtonActive]}
-          onPress={() => setType('debit')}
+          style={[
+            styles.typeButton,
+            type === 'debit' && [styles.typeButtonActive, { backgroundColor: colors.primary }]
+          ]}
+          onPress={() => handleTypePress('debit')}
         >
           <Text style={[styles.typeText, type === 'debit' && styles.typeTextActive]}>Expense / Out</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.typeButton, type === 'credit' && styles.typeButtonActive]}
-          onPress={() => setType('credit')}
+          style={[
+            styles.typeButton,
+            type === 'credit' && [styles.typeButtonActive, { backgroundColor: colors.primary }]
+          ]}
+          onPress={() => handleTypePress('credit')}
         >
           <Text style={[styles.typeText, type === 'credit' && styles.typeTextActive]}>Income / In</Text>
         </TouchableOpacity>
@@ -152,9 +189,9 @@ export default function AddTransactionScreen() {
       <View style={styles.inputGroup}>
         <Text style={styles.label}>PAYMENT SOURCE</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground }]}
           placeholder="e.g. Cash, HDFC Card, Venmo"
-          placeholderTextColor="#444"
+          placeholderTextColor={colors.secondary}
           value={source}
           onChangeText={setSource}
         />
@@ -164,9 +201,9 @@ export default function AddTransactionScreen() {
       <View style={styles.inputGroup}>
         <Text style={styles.label}>DESCRIPTION / MERCHANT</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground }]}
           placeholder="What did you buy?"
-          placeholderTextColor="#444"
+          placeholderTextColor={colors.secondary}
           value={description}
           onChangeText={setDescription}
         />
@@ -176,7 +213,7 @@ export default function AddTransactionScreen() {
       <View style={styles.inputGroup}>
         <Text style={styles.label}>DATE (YYYY-MM-DD)</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground }]}
           value={date.split('T')[0]}
           onChangeText={(val) => setDate(val + 'T' + new Date().toISOString().split('T')[1])}
         />
@@ -186,24 +223,40 @@ export default function AddTransactionScreen() {
       <View style={styles.inputGroup}>
         <Text style={styles.label}>CATEGORY</Text>
         <View style={styles.categoryGrid}>
-          {categories.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[
-                styles.categoryCard,
-                selectedCategory === cat && styles.categoryCardActive,
-              ]}
-              onPress={() => setSelectedCategory(cat)}
-            >
-              <Text style={styles.categoryEmoji}>{categoryEmojis[cat]}</Text>
-              <Text style={[styles.categoryText, selectedCategory === cat && styles.categoryTextActive]}>{cat}</Text>
-            </TouchableOpacity>
-          ))}
+          {categories.map((cat) => {
+            const isSelected = selectedCategory === cat;
+            return (
+              <TouchableOpacity
+                key={cat}
+                style={[
+                  styles.categoryCard,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: isSelected ? colors.primary : colors.border,
+                    borderWidth: isSelected ? 2 : 1
+                  }
+                ]}
+                onPress={() => handleCategoryPress(cat)}
+              >
+                <Text style={styles.categoryEmoji}>{categoryEmojis[cat]}</Text>
+                <Text style={[
+                  styles.categoryText,
+                  { color: isSelected ? colors.foreground : colors.secondary }
+                ]}>
+                  {cat}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
       {/* Save Button */}
-      <TouchableOpacity style={styles.saveButton} onPress={handleSubmit}>
+      <TouchableOpacity
+        style={[styles.saveButton, { backgroundColor: colors.primary }]}
+        onPress={handleSubmit}
+        activeOpacity={0.8}
+      >
         <Text style={styles.saveText}>Save Transaction</Text>
       </TouchableOpacity>
     </ScrollView>
@@ -213,12 +266,19 @@ export default function AddTransactionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#080808',
   },
   content: {
     padding: 20,
-    paddingTop: 64,
+    paddingTop: 10,
     paddingBottom: 48,
+  },
+  dragHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginVertical: 12,
+    opacity: 0.5,
   },
   header: {
     flexDirection: 'row',
@@ -229,7 +289,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#ffffff',
     letterSpacing: -0.5,
   },
   closeButton: {
@@ -241,7 +300,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#555555',
+    color: '#64748b',
     letterSpacing: 1.2,
     marginBottom: 10,
   },
@@ -249,56 +308,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#222222',
     paddingBottom: 8,
   },
   currencyPrefix: {
     fontSize: 32,
     fontWeight: '800',
-    color: '#ffffff',
     marginRight: 8,
   },
   amountInput: {
     flex: 1,
     fontSize: 40,
     fontWeight: '900',
-    color: '#ffffff',
     letterSpacing: -1,
   },
   typeSelector: {
     flexDirection: 'row',
-    backgroundColor: '#121212',
-    borderRadius: 20,
+    borderRadius: 14,
     padding: 4,
     borderWidth: 1,
-    borderColor: '#222222',
     marginBottom: 24,
   },
   typeButton: {
     flex: 1,
     paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: 16,
+    borderRadius: 12,
   },
   typeButtonActive: {
-    backgroundColor: '#ffffff',
+    // shadow effects or active state styling handled inline
   },
   typeText: {
-    color: '#666666',
+    color: '#64748b',
     fontSize: 13,
     fontWeight: '700',
   },
   typeTextActive: {
-    color: '#080808',
+    color: '#ffffff',
   },
   input: {
-    backgroundColor: '#121212',
-    borderRadius: 16,
+    borderRadius: 12, // Consistent border radius of 12px for inputs
     padding: 16,
     fontSize: 15,
-    color: '#ffffff',
     borderWidth: 1,
-    borderColor: '#222222',
   },
   categoryGrid: {
     flexDirection: 'row',
@@ -307,41 +358,35 @@ const styles = StyleSheet.create({
   },
   categoryCard: {
     width: (WINDOW_WIDTH - 56) / 2, // 2 items per row
-    backgroundColor: '#121212',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#222222',
+    borderRadius: 16, // Consistent border radius of 16px for cards
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
-  },
-  categoryCardActive: {
-    borderColor: '#ffffff',
   },
   categoryEmoji: {
     fontSize: 18,
     marginRight: 10,
   },
   categoryText: {
-    color: '#666666',
     fontSize: 13,
     fontWeight: '700',
   },
-  categoryTextActive: {
-    color: '#ffffff',
-  },
   saveButton: {
-    backgroundColor: '#ffffff',
     paddingVertical: 18,
     borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   saveText: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#080808',
+    color: '#ffffff',
   },
 });

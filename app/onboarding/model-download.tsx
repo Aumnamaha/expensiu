@@ -1,84 +1,85 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert, Modal } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { saveUserProfile } from '../../db/database';
+import * as Haptics from 'expo-haptics';
+import { useTheme } from '../../hooks/useTheme';
+import { PremiumAlert } from '../../components/PremiumAlert';
 
-// ============================================================================
-// Onboarding Model Download Screen
-// ============================================================================
-
-// Note: The AI model is required for multilingual parsing (ISO 639-1 language detection).
-// Without it, the app can only parse English transactions using regex fallback.
-// This screen cannot be skipped - users must download the model to unlock full features.
-
-const MODEL_SIZE_MB = 300; // Approximate size of Qwen2.5 0.5B model
+const MODEL_SIZE_MB = 300;
 
 export default function ModelDownloadScreen() {
+  const { colors } = useTheme();
+  const router = useRouter();
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
-  const [wifiStatus, setWifiStatus] = useState<'connected' | 'disconnected'>(
-    'connected'
-  );
-  const [stepText, setStepText] = useState('Ready to download');
-  const router = useRouter();
+  const [modelLoaded, setModelLoaded] = useState(false);
+  const [stepText, setStepText] = useState('Checking model...');
+
+  // Custom Alert States
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [alertButtons, setAlertButtons] = useState<any[]>([]);
 
   useEffect(() => {
-    // Auto-navigate if model already downloaded
     checkModelStatus();
   }, []);
 
+  function showCustomAlert(title: string, message: string, buttons?: any[]) {
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertButtons(buttons || []);
+    setAlertVisible(true);
+  }
+
   async function checkModelStatus() {
     try {
-      await require('@/services/aiEngine').isModelDownloaded();
-
-      // Model exists - navigate to permissions screen automatically
-      router.replace('/');
+      const downloaded = await require('../../services/aiEngine').isModelDownloaded();
+      setModelLoaded(downloaded);
+      setStepText(downloaded ? 'Model downloaded' : 'Ready to download');
     } catch (error) {
-      console.log('Model not yet downloaded, showing download screen');
+      console.log('Error checking model status:', error);
+      setStepText('Ready to download');
     }
   }
 
   async function handleStartDownload() {
-    if (wifiStatus === 'disconnected') {
-      Alert.alert(
-        'No WiFi Connection',
-        'Connect to WiFi to continue downloading the AI model.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setDownloading(true);
     setDownloadProgress(0);
-    setStepText('Checking model...');
+    setStepText('Checking WiFi connection...');
 
     try {
-      // Step 1: Check if already downloaded
-      await require('@/services/aiEngine').isModelDownloaded();
-
-      // Model exists - complete automatically
-      Alert.alert(
-        'Model Ready!',
-        'Your AI brain is ready to go. Navigating to permissions...',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/'),
-          },
-        ]
-      );
-
-    } catch (error) {
-      // Not downloaded yet - start download
+      // WiFi check happens inside services/aiEngine
       console.log('Starting model download...');
-      setStepText('Downloading model...');
-      await require('@/services/aiEngine').downloadModel(updateProgress);
+      setStepText('Downloading model (~300MB)...');
+      await require('../../services/aiEngine').downloadModel(updateProgress);
 
-      setStepText('Verifying download...');
+      setStepText('Verifying model...');
       await verifyModel();
 
+      setModelLoaded(true);
       setStepText('Ready!');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      
+      showCustomAlert(
+        'Download Complete',
+        'Your local AI model has been successfully downloaded.',
+        [{ text: 'OK', onPress: handleBack }]
+      );
+    } catch (error: any) {
+      console.error('Download error:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      
+      showCustomAlert(
+        'Download Failed',
+        error?.message || String(error) || 'Unable to download model.',
+        [
+          { text: 'Retry', onPress: handleStartDownload },
+          { text: 'Cancel', style: 'cancel', onPress: () => setAlertVisible(false) }
+        ]
+      );
     } finally {
       setDownloading(false);
     }
@@ -89,176 +90,197 @@ export default function ModelDownloadScreen() {
   }
 
   async function verifyModel() {
-    // Wait briefly to show "Verifying" state (in real app, this would be actual verification)
     await new Promise(resolve => setTimeout(resolve, 500));
-
     try {
-      // Verify model exists
-      // Check if model file exists by trying to read its metadata
-      try {
-        const cacheDir = require('expo-file-system').cacheDirectory;
-        const modelPath = cacheDir ? `${cacheDir}/MLC/qwen2.5-0.5b.onnx` : '';
-        const stat = await require('expo-file-system').statAsync(modelPath || '');
-
-        if (!stat || stat.size === 0) {
-          throw new Error('Model verification failed');
-        }
-
-        console.log(`Model verified. Size: ${(stat.size / (1024 * 1024)).toFixed(1)}MB`);
-      } catch (error) {
-        throw new Error('Model not found at expected location');
+      const { MODEL_LOCAL_PATH } = require('../../services/aiEngine');
+      const fileInfo = await require('expo-file-system').getInfoAsync(MODEL_LOCAL_PATH);
+      if (!fileInfo || !fileInfo.exists || fileInfo.size === 0) {
+        throw new Error('Model verification failed');
       }
-
-    } catch (error: any) {
-      Alert.alert(
-        'Download Failed',
-        error?.message || String(error) || 'Unable to verify model download.',
-        [{ text: 'Retry', onPress: handleStartDownload }]
-      );
-      setDownloading(false);
-      throw new Error(String(error));
+    } catch (error) {
+      throw new Error('Model not found at expected location');
     }
   }
 
-  const progressPercent = downloadProgress;
+  const handleBack = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    router.back();
+  };
+
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color={colors.foreground} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>AI Model Settings</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
       {/* Logo */}
       <View style={styles.logoContainer}>
         <Text style={styles.logoIcon}>🧠</Text>
       </View>
 
-      {/* Header */}
-      <Text style={styles.title}>Setting up your AI brain</Text>
-      <Text style={styles.subtitle}>One-time download (~{MODEL_SIZE_MB}MB). After this, everything runs on your device. Forever offline.</Text>
+      {/* Title */}
+      <Text style={[styles.title, { color: colors.foreground }]}>Local AI Model</Text>
+      <Text style={[styles.subtitle, { color: colors.secondary }]}>
+        One-time download (~{MODEL_SIZE_MB}MB). After download, your AI works entirely offline.
+      </Text>
 
-      {/* WiFi Status Indicator */}
-      {wifiStatus === 'connected' ? (
-        <View style={[styles.statusContainer, styles.statusConnected]}>
-          <Text style={styles.statusIcon}>✅</Text>
-          <Text style={styles.statusText}>WiFi connected</Text>
-        </View>
-      ) : (
-        <View style={[styles.statusContainer, styles.statusDisconnected]}>
-          <Text style={styles.statusIcon}>📶</Text>
-          <Text style={styles.statusText}>Connect to WiFi to continue</Text>
-        </View>
-      )}
+      {/* Status Card */}
+      <View style={[styles.statusCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons
+          name={modelLoaded ? 'checkmark-circle' : 'cloud-download-outline'}
+          size={36}
+          color={modelLoaded ? colors.success : colors.secondary}
+          style={{ marginBottom: 12 }}
+        />
+        <Text style={[styles.statusTitle, { color: colors.foreground }]}>
+          {modelLoaded ? 'AI Model Ready' : 'Download Required'}
+        </Text>
+        <Text style={[styles.statusDesc, { color: colors.secondary }]}>
+          {modelLoaded
+            ? 'Qwen 2.5 0.5B model is active. multilingual transaction parsing is enabled.'
+            : 'Multilingual statement parsing requires downloading the local AI brain.'}
+        </Text>
+      </View>
 
-      {/* Download Button */}
-      <TouchableOpacity
-        style={[
-          styles.downloadButton,
-          downloading && { opacity: 0.7 },
-        ]}
-        onPress={handleStartDownload}
-        disabled={downloading}
-      >
-        {downloading ? (
-          <>
-            <ActivityIndicator size="small" color="#fff" />
-            <Text style={styles.buttonText}>{stepText}</Text>
-          </>
+      {/* Action Section */}
+      <View style={styles.actionContainer}>
+        {modelLoaded ? (
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: colors.success }]}
+            onPress={handleBack}
+          >
+            <Text style={styles.buttonText}>Go Back</Text>
+          </TouchableOpacity>
         ) : (
-          <Text style={styles.buttonText}>Download AI Model</Text>
+          <TouchableOpacity
+            style={[
+              styles.button,
+              { backgroundColor: colors.primary },
+              downloading && { opacity: 0.7 }
+            ]}
+            onPress={handleStartDownload}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <View style={styles.row}>
+                <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+                <Text style={styles.buttonText}>{Math.round(downloadProgress)}%</Text>
+              </View>
+            ) : (
+              <Text style={styles.buttonText}>Download Model</Text>
+            )}
+          </TouchableOpacity>
         )}
-      </TouchableOpacity>
+      </View>
 
       {/* Progress Bar */}
-      {downloadProgress > 0 && (
+      {downloading && downloadProgress > 0 && (
         <View style={styles.progressContainer}>
-          <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarBg, { backgroundColor: colors.border }]}>
             <View
               style={[
                 styles.progressBarFill,
-                { width: `${progressPercent}%`, backgroundColor: progressPercent >= 100 ? '#4ade80' : '#60a5fa' },
+                { width: `${downloadProgress}%`, backgroundColor: colors.primary }
               ]}
             />
           </View>
-          <Text style={styles.progressText}>{Math.round(progressPercent)}%</Text>
+          <Text style={[styles.progressText, { color: colors.foreground }]}>{stepText}</Text>
         </View>
       )}
 
-      {/* Info Cards */}
-      <View style={styles.infoContainer}>
-        <InfoCard icon="🔒" title="100% Private" desc="Model stays on your device" />
-        <InfoCard icon="⚡" title="Fast AI" desc="No internet needed after download" />
-        <InfoCard icon="🌍" title="Multilingual" desc="Works in 20+ languages" />
-      </View>
+      {/* Warning for Skipping during onboarding (kept only as secondary info) */}
+      {!modelLoaded && !downloading && (
+        <View style={[styles.warningBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="wifi-outline" size={20} color={colors.secondary} style={{ marginBottom: 4 }} />
+          <Text style={[styles.warningText, { color: colors.secondary }]}>
+            Please connect to WiFi. Download is around 300MB.
+          </Text>
+        </View>
+      )}
 
-      {/* Warning for skipping */}
-      <TouchableOpacity
-        onPress={async () => {
-          try {
-            await saveUserProfile({
-              name: 'User',
-              monthly_budget_minor: 100000,
-              currency_code: 'USD',
-              currency_symbol: '$',
-              locale: 'en',
-              ai_model_downloaded: false,
-              ai_model_version: ''
-            });
-          } catch(e) {}
-          router.replace('/');
-        }}
-        style={{ marginTop: 16, padding: 12, alignItems: 'center' }}
-      >
-        <Text style={{ color: '#8b949e', textDecorationLine: 'underline' }}>
-          Skip for now (use English-only mode)
-        </Text>
-      </TouchableOpacity>
-      <View style={styles.warningContainer}>
-        <Text style={styles.warningIcon}>⚠️</Text>
-        <Text style={styles.warningText}>This screen cannot be skipped. The AI is required for multilingual parsing and advanced features.</Text>
-      </View>
+      <PremiumAlert
+        visible={alertVisible}
+        title={alertTitle}
+        message={alertMessage}
+        buttons={alertButtons}
+        onClose={() => setAlertVisible(false)}
+      />
     </ScrollView>
   );
 }
 
-// ============================================================================
-// Info Card Component
-// ============================================================================
-
-function InfoCard({ icon, title, desc }: { icon: string; title: string; desc: string }) {
-  return (
-    <View style={styles.infoCard}>
-      <Text style={styles.infoIcon}>{icon}</Text>
-      <Text style={styles.infoTitle}>{title}</Text>
-      <Text style={styles.infoDesc}>{desc}</Text>
-    </View>
-  );
-}
-
-// ============================================================================
-// Styles
-// ============================================================================
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d1117' },
-  content: { padding: 24, alignItems: 'center', justifyContent: 'center' },
-  logoContainer: { marginBottom: 24, marginTop: -80 },
-  logoIcon: { fontSize: 80, textAlign: 'center' },
-  title: { color: '#e0e0e0', fontSize: 26, fontWeight: 'bold', textAlign: 'center', marginVertical: 16 },
-  subtitle: { color: '#8b949e', fontSize: 15, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
-  statusContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161b22', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, alignSelf: 'flex-start' },
-  statusIcon: { fontSize: 20 },
-  statusText: { color: '#8b949e', fontSize: 13, marginLeft: 8 },
-  statusConnected: { backgroundColor: '#166534' },
-  statusDisconnected: { backgroundColor: '#991b1b' },
-  downloadButton: { backgroundColor: '#1f6feb', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12, marginBottom: 16, width: '100%', alignItems: 'center', maxWidth: 280 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  progressContainer: { flexDirection: 'column', alignItems: 'center', width: '100%', marginBottom: 32 },
-  progressBarBg: { height: 8, borderRadius: 4, backgroundColor: '#30363d', overflow: 'hidden', width: '100%', maxWidth: 280 },
-  progressBarFill: { height: '100%', borderRadius: 4 },
-  progressText: { marginTop: 8, color: '#e0e0e0', fontSize: 16 },
-  infoContainer: { flexDirection: 'row', justifyContent: 'space-around', width: '100%' },
-  infoCard: { alignItems: 'center', marginHorizontal: 12 },
-  infoIcon: { fontSize: 32, marginBottom: 8 },
-  infoTitle: { color: '#e0e0e0', fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  infoDesc: { color: '#8b949e', fontSize: 12, textAlign: 'center', marginTop: 4 },
-  warningContainer: { backgroundColor: '#301a1a', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24, maxWidth: 300 },
-  warningIcon: { fontSize: 32, marginBottom: 8 },
-  warningText: { color: '#fca5a5', fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  container: { flex: 1 },
+  content: { padding: 24, paddingTop: 64, alignItems: 'center' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 20,
+  },
+  backButton: {
+    padding: 8,
+    width: 40,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  logoContainer: { marginBottom: 16, marginTop: 12 },
+  logoIcon: { fontSize: 80 },
+  title: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginBottom: 8 },
+  subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 28, lineHeight: 22, maxWidth: 300 },
+  statusCard: {
+    width: '100%',
+    borderRadius: 16, // Consistent border radius of 16px for cards
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  statusTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 },
+  statusDesc: { fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  actionContainer: { width: '100%', alignItems: 'center' },
+  button: {
+    width: '100%',
+    maxWidth: 280,
+    paddingVertical: 16,
+    borderRadius: 30, // Button radius
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  buttonText: { color: '#ffffff', fontSize: 16, fontWeight: '800' },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  progressContainer: { width: '100%', maxWidth: 280, marginTop: 24, alignItems: 'center' },
+  progressBarBg: { height: 6, borderRadius: 3, width: '100%', overflow: 'hidden' },
+  progressBarFill: { height: '100%', borderRadius: 3 },
+  progressText: { marginTop: 10, fontSize: 12, fontWeight: '600' },
+  warningBox: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 32,
+    maxWidth: 280,
+  },
+  warningText: { fontSize: 12, textAlign: 'center', fontWeight: '500' },
 });

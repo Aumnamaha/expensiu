@@ -75,3 +75,96 @@ export function getDefaultCurrency(locale?: string): string {
   if (locale?.includes('ar')) return 'SAR';
   return 'USD';
 }
+
+// ============================================================================
+// Static Exchange Rates (relative to USD = 1.0)
+// These are offline fallback rates. The app auto-updates them monthly from
+// https://open.er-api.com/v6/latest/USD (free, no-auth, privacy-preserving).
+// ============================================================================
+
+export const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
+  USD: 1.0,
+  EUR: 0.92,
+  GBP: 0.79,
+  INR: 83.5,
+  CNY: 7.24,
+  JPY: 157.0,
+  AED: 3.67,
+  SAR: 3.75,
+  BRL: 5.05,
+  MXN: 17.15,
+  IDR: 15700.0,
+  PHP: 56.5,
+  VND: 25400.0,
+  KES: 153.0,
+  NGN: 1550.0,
+  GHS: 15.4,
+  ZAR: 18.5,
+  EGP: 48.5,
+  PKR: 278.0,
+  BDT: 118.0,
+  THB: 35.5,
+  MYR: 4.72,
+  SGD: 1.34,
+  HKD: 7.82,
+  KRW: 1350.0,
+  CHF: 0.88,
+  SEK: 10.8,
+  NOK: 10.9,
+  DKK: 6.88,
+  AUD: 1.53,
+  CAD: 1.36,
+  NZD: 1.65,
+  ARS: 870.0,
+  CLP: 940.0,
+  COP: 3950.0,
+  PEN: 3.75,
+  TRY: 32.5,
+  UAH: 41.0,
+  PLN: 4.0,
+  CZK: 23.5,
+  HUF: 365.0,
+  RON: 4.6,
+  RUB: 92.0,
+  ILS: 3.65,
+  QAR: 3.64,
+  KWD: 0.31,
+  BHD: 0.376,
+  OMR: 0.385,
+  PKD: 278.0,
+};
+
+// ============================================================================
+// Currency Conversion Utility
+// ============================================================================
+
+/**
+ * Convert an amount (in minor units) from one currency to another.
+ * Uses the provided rates map, falling back to DEFAULT_EXCHANGE_RATES.
+ *
+ * @param amountMinor - The amount in minor currency units (e.g. cents)
+ * @param fromCode   - Source currency code (e.g. 'USD')
+ * @param toCode     - Target currency code (e.g. 'INR')
+ * @param rates      - Optional custom rates map (from live API cache)
+ * @returns Converted amount in minor units, rounded to nearest integer
+ */
+export function convertCurrency(
+  amountMinor: number,
+  fromCode: string,
+  toCode: string,
+  rates?: Record<string, number>
+): number {
+  if (fromCode === toCode) return amountMinor;
+
+  const rateMap = rates || DEFAULT_EXCHANGE_RATES;
+  const fromRate = rateMap[fromCode];
+  const toRate = rateMap[toCode];
+
+  if (!fromRate || !toRate) {
+    console.warn(`Exchange rate missing for ${fromCode} or ${toCode}, returning original amount`);
+    return amountMinor;
+  }
+
+  // Convert: amount_in_USD = amountMinor / fromRate, then amount_in_target = USD * toRate
+  return Math.round((amountMinor / fromRate) * toRate);
+}

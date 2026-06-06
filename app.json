@@ -46,7 +46,8 @@
         ]
       },
       "graphicsEnabled": true,
-      "flagSecure": true
+      "flagSecure": true,
+      "kotlinVersion": "2.1.0"
     },
     "web": {
       "favicon": "./assets/favicon.png",
