@@ -1,4 +1,14 @@
-# ExpensiU 📱
+# 📱 ExpensiU — Privacy-First AI Finance Tracker
+
+> **Offline personal finance tracker with SMS parsing, local LLM classification, multi-currency support, and encrypted SQLite storage — zero cloud dependency.**
+
+[![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactnative.dev/)
+[![Expo SDK](https://img.shields.io/badge/Expo-SDK%2051-000020?style=for-the-badge&logo=expo&logoColor=white)](https://expo.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+---
+
+## 📋 Executive Summary
 
 **ExpensiU** is a privacy-first, offline AI-powered personal finance tracker that automatically monitors and categorizes your transactions across multiple currencies. Built with native Android/iOS support and local LLM inference, it gives you complete control over your financial data while delivering intelligent insights without ever sending your information to the cloud.
 
